@@ -8,8 +8,8 @@ import (
 	"math/rand"
 	"time"
 
-	"github.com/faiface/gui"
-	"github.com/faiface/gui/win"
+	"github.com/bbeni/guiGL"
+	"github.com/bbeni/guiGL/win"
 	"github.com/faiface/mainthread"
 )
 

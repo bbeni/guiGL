@@ -5,8 +5,8 @@ import (
 	"image/color"
 	"image/draw"
 
-	"github.com/faiface/gui"
-	"github.com/faiface/gui/win"
+	"github.com/bbeni/guiGL"
+	"github.com/bbeni/guiGL/win"
 )
 
 func Button(env gui.Env, theme *Theme, text string, action func()) {

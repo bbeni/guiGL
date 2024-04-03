@@ -7,8 +7,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/faiface/gui"
-	"github.com/faiface/gui/win"
+	"github.com/bbeni/guiGL"
+	"github.com/bbeni/guiGL/win"
 	"golang.org/x/image/math/fixed"
 )
 

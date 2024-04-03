@@ -3,8 +3,9 @@ package main
 import (
 	"os/user"
 
-	"github.com/faiface/gui"
-	"github.com/faiface/gui/win"
+	"github.com/bbeni/guiGL"
+	"github.com/bbeni/guiGL/win"
+
 	"github.com/faiface/mainthread"
 	"golang.org/x/image/colornames"
 	"golang.org/x/image/font/gofont/goregular"

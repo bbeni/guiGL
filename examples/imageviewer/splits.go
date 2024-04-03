@@ -4,7 +4,7 @@ import (
 	"image"
 	"image/draw"
 
-	"github.com/faiface/gui"
+	"github.com/bbeni/guiGL"
 )
 
 type envPair struct {
