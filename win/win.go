@@ -3,15 +3,18 @@ package win
 import (
 	"image"
 	"image/draw"
+	"image/color"
+
 	"runtime"
 	"time"
-	"unsafe"
+	"strings"
+	"fmt"
 
 	"github.com/bbeni/guiGL"
 
 	"github.com/faiface/mainthread"
-	"github.com/go-gl/gl/v2.1/gl"
-	"github.com/go-gl/glfw/v3.2/glfw"
+	"github.com/go-gl/gl/v4.2-core/gl"
+	"github.com/go-gl/glfw/v3.3/glfw"
 )
 
 // Option is a functional option to the window constructor New.
@@ -169,6 +172,11 @@ type Win struct {
 	w     *glfw.Window
 	img   *image.RGBA
 	ratio int
+
+	// open gl stuff
+	screenTexture uint32
+	shaderProgram uint32
+	quadVao       uint32
 }
 
 // Events returns the events channel of the window.
@@ -277,7 +285,8 @@ func (w *Win) eventThread() {
 
 func (w *Win) openGLThread() {
 	w.w.MakeContextCurrent()
-	gl.Init()
+
+	w.openGLSetup()
 
 	w.openGLFlush(w.img.Bounds())
 
@@ -336,24 +345,180 @@ func (w *Win) openGLFlush(r image.Rectangle) {
 	tmp := image.NewRGBA(r)
 	draw.Draw(tmp, r, w.img, r.Min, draw.Src)
 
-	gl.DrawBuffer(gl.FRONT)
-	gl.Viewport(
-		int32(bounds.Min.X),
-		int32(bounds.Min.Y),
-		int32(bounds.Dx()),
-		int32(bounds.Dy()),
-	)
-	gl.RasterPos2d(
-		-1+2*float64(r.Min.X)/float64(bounds.Dx()),
-		+1-2*float64(r.Min.Y)/float64(bounds.Dy()),
-	)
-	gl.PixelZoom(1, -1)
-	gl.DrawPixels(
+	gl.TextureSubImage2D(
+		w.screenTexture,
+		0,
+		int32(r.Min.X),
+		int32(r.Min.Y),
 		int32(r.Dx()),
 		int32(r.Dy()),
 		gl.RGBA,
 		gl.UNSIGNED_BYTE,
-		unsafe.Pointer(&tmp.Pix[0]),
-	)
+		gl.Ptr(tmp.Pix))
+
+	gl.UseProgram(w.shaderProgram)
+	gl.BindVertexArray(w.quadVao)
+	gl.ActiveTexture(gl.TEXTURE0)
+	gl.BindTexture(gl.TEXTURE_2D, w.screenTexture)
+	gl.DrawArrays(gl.TRIANGLES, 0, 6*2*3)
 	gl.Flush()
+}
+
+func (w *Win) openGLSetup() {
+	var err error
+	if err = gl.Init(); err != nil {
+		panic(err)
+	}
+
+	var screenVertShader = `
+		#version 420
+
+		in vec3 vert;
+		in vec2 vertTexCoord;
+		out vec2 fragTexCoord;
+
+		void main() {
+			fragTexCoord = vertTexCoord;
+			gl_Position = vec4(vert.xy, 0.0, 1.0);
+	}` + "\x00"
+
+	var screenFragShader = `
+		#version 420
+
+		uniform sampler2D tex;
+		in vec2 fragTexCoord;
+
+		out vec4 outputColor;
+
+		void main() {
+			outputColor = texture(tex, fragTexCoord);
+		}
+	` + "\x00"
+
+	var quadVertices = []float32 {
+		//  X, Y, Z, U, V
+		-1.0,  1.0, 1.0,  0.0, 0.0,
+		1.0,  -1.0, 1.0,  1.0, 1.0,
+		-1.0, -1.0, 1.0,  0.0, 1.0,
+		-1.0,  1.0, 1.0,  0.0, 0.0,
+		1.0,   1.0, 1.0,  1.0, 0.0,
+		1.0,  -1.0, 1.0,  1.0, 1.0,
+	}
+
+	w.shaderProgram, err = newProgram(screenVertShader, screenFragShader)
+	gl.UseProgram(w.shaderProgram)
+
+	wid, hei := w.w.GetFramebufferSize()
+	w.screenTexture = newScreenTexture(wid, hei)
+	textureUniform := gl.GetUniformLocation(w.shaderProgram, gl.Str("tex\x00"))
+	gl.Uniform1i(textureUniform, 0)
+	gl.BindFragDataLocation(w.shaderProgram, 0, gl.Str("outputColor\x00"))
+
+	gl.GenVertexArrays(1, &w.quadVao)
+	gl.BindVertexArray(w.quadVao)
+
+	var vbo uint32
+	gl.GenBuffers(1, &vbo)
+	gl.BindBuffer(gl.ARRAY_BUFFER, vbo)
+	gl.BufferData(gl.ARRAY_BUFFER, len(quadVertices)*4, gl.Ptr(quadVertices), gl.STATIC_DRAW)
+
+	vertAttrib := uint32(gl.GetAttribLocation(w.shaderProgram, gl.Str("vert\x00")))
+	gl.EnableVertexAttribArray(vertAttrib)
+	gl.VertexAttribPointerWithOffset(vertAttrib, 3, gl.FLOAT, false, 5*4, 0)
+
+	texCoordAttrib := uint32(gl.GetAttribLocation(w.shaderProgram, gl.Str("vertTexCoord\x00")))
+	gl.EnableVertexAttribArray(texCoordAttrib)
+	gl.VertexAttribPointerWithOffset(texCoordAttrib, 2, gl.FLOAT, false, 5*4, 3*4)
+
+	gl.ClearColor(1.0, 1.0, 0.0, 1.0)
+}
+
+
+func newProgram(vertexShaderSource, fragmentShaderSource string) (uint32, error) {
+
+	vertexShader, err := compileShader(vertexShaderSource, gl.VERTEX_SHADER)
+	if err != nil {
+		return 0, err
+	}
+
+	fragmentShader, err := compileShader(fragmentShaderSource, gl.FRAGMENT_SHADER)
+	if err != nil {
+		return 0, err
+	}
+
+	program := gl.CreateProgram()
+
+	gl.AttachShader(program, vertexShader)
+	gl.AttachShader(program, fragmentShader)
+	gl.LinkProgram(program)
+
+	var status int32
+	gl.GetProgramiv(program, gl.LINK_STATUS, &status)
+	if status == gl.FALSE {
+		var logLength int32
+		gl.GetProgramiv(program, gl.INFO_LOG_LENGTH, &logLength)
+
+		log := strings.Repeat("\x00", int(logLength+1))
+		gl.GetProgramInfoLog(program, logLength, nil, gl.Str(log))
+
+		return 0, fmt.Errorf("failed to link program: %v", log)
+	}
+
+	gl.DeleteShader(vertexShader)
+	gl.DeleteShader(fragmentShader)
+
+	return program, nil
+}
+
+func compileShader(source string, shaderType uint32) (uint32, error) {
+	shader := gl.CreateShader(shaderType)
+	csources, free := gl.Strs(source)
+
+	gl.ShaderSource(shader, 1, csources, nil)
+	free()
+	gl.CompileShader(shader)
+
+	var status int32
+	gl.GetShaderiv(shader, gl.COMPILE_STATUS, &status)
+	if status == gl.FALSE {
+		var logLength int32
+		gl.GetShaderiv(shader, gl.INFO_LOG_LENGTH, &logLength)
+
+		log := strings.Repeat("\x00", int(logLength+1))
+		gl.GetShaderInfoLog(shader, logLength, nil, gl.Str(log))
+
+		return 0, fmt.Errorf("failed to compile %v: %v", source, log)
+	}
+
+	return shader, nil
+}
+
+func newScreenTexture(width, height int) (uint32) {
+
+	rgba := image.NewRGBA(image.Rect(0, 0, width, height))
+	if rgba.Stride != rgba.Rect.Size().X*4 {
+		panic("unsupported stride")
+	}
+	draw.Draw(rgba, rgba.Bounds(), image.NewUniform(color.RGBA{100,100,0,255}), image.Point{0, 0}, draw.Src)
+
+	var texture uint32
+	gl.GenTextures(1, &texture)
+	gl.ActiveTexture(gl.TEXTURE0)
+	gl.BindTexture(gl.TEXTURE_2D, texture)
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+	gl.TexImage2D(
+		gl.TEXTURE_2D,
+		0,
+		gl.RGBA,
+		int32(rgba.Rect.Size().X),
+		int32(rgba.Rect.Size().Y),
+		0,
+		gl.RGBA,
+		gl.UNSIGNED_BYTE,
+		gl.Ptr(rgba.Pix))
+
+	return texture
 }
