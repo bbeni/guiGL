@@ -49,7 +49,6 @@ func run() {
 		}
 	}
 
-
 	// Draw gui elements in different colors
 	for i:= range uint8(7) {
 		w.Draw() <- drawButton(i)

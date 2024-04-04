@@ -6,7 +6,10 @@
 // Modifications:
 // Copyright 2024 Benjamin Froelich bbenif@gmail.com
 // MIT licence
-
+//
+//	- Click on colored buttons on the right to change cube background color
+//	- Scroll with mouse wheel to zoom the cube in and out
+//
 
 package main
 
@@ -97,8 +100,7 @@ func CubeInit() {
 
 }
 
-// The draw function is responsible to clear only it's own part!
-//  i.e. use -> gl.Scissor, gl.Clear !!
+
 func CubeDraw() {
 
 	gl.UseProgram(program)
@@ -119,7 +121,7 @@ func CubeDraw() {
 	previousTime = time
 	angle += elapsed
 	model = mgl32.HomogRotate3D(float32(angle), mgl32.Vec3{0, 1, 0})
-	// fmt.Println("FPS:", 1.0/elapsed)
+	//fmt.Println("FPS:", 1.0/elapsed)
 
 	// Render
 	gl.UniformMatrix4fv(modelUniform, 1, false, &model[0])
@@ -226,11 +228,9 @@ var vertexShader = `
 uniform mat4 projection;
 uniform mat4 camera;
 uniform mat4 model;
-
-in vec3 vert;
-in vec2 vertTexCoord;
-
-out vec2 fragTexCoord;
+in      vec3 vert;
+in      vec2 vertTexCoord;
+out     vec2 fragTexCoord;
 
 void main() {
     fragTexCoord = vertTexCoord;
@@ -242,10 +242,8 @@ var fragmentShader = `
 #version 420
 
 uniform sampler2D tex;
-
-in vec2 fragTexCoord;
-
-out vec4 outputColor;
+in      vec2 fragTexCoord;
+out     vec4 outputColor;
 
 void main() {
     outputColor = texture(tex, fragTexCoord);
