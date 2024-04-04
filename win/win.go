@@ -334,6 +334,7 @@ loop:
 			select {
 			case <-time.After(time.Second / 960):
 				w.openGLFlush(totalR)
+				w.w.SwapBuffers()
 				totalR = image.ZR
 				continue loop
 			case r := <-w.newSize:
