@@ -86,6 +86,7 @@ func New(opts ...Option) (*Win, error) {
 		eventsOut: eventsOut,
 		eventsIn:  eventsIn,
 		draw:      make(chan func(draw.Image) image.Rectangle),
+		drawGL:    make(chan func()),
 		newSize:   make(chan image.Rectangle),
 		finish:    make(chan struct{}),
 	}
@@ -134,9 +135,14 @@ func makeGLFWWin(o *options) (*glfw.Window, error) {
 	if err != nil {
 		return nil, err
 	}
-	glfw.WindowHint(glfw.DoubleBuffer, glfw.False)
+	//glfw.WindowHint(glfw.DoubleBuffer, glfw.False)
+	glfw.WindowHint(glfw.ContextVersionMajor, 4)
+	glfw.WindowHint(glfw.ContextVersionMinor, 2)
+	glfw.WindowHint(glfw.OpenGLProfile, glfw.OpenGLCoreProfile)
+	glfw.WindowHint(glfw.OpenGLForwardCompatible, glfw.True)
 	if o.resizable {
 		glfw.WindowHint(glfw.Resizable, glfw.True)
+		panic("resize is not supported for now. see TODO below and remove this panic")
 	} else {
 		glfw.WindowHint(glfw.Resizable, glfw.False)
 	}
@@ -160,11 +166,12 @@ func makeGLFWWin(o *options) (*glfw.Window, error) {
 //
 // It receives its events from the OS and it draws to the surface of the window.
 //
-// Warning: only one window can be open at a time. This will be fixed.
+// Warning: only one window can be open at a time
 type Win struct {
 	eventsOut <-chan gui.Event
 	eventsIn  chan<- gui.Event
 	draw      chan func(draw.Image) image.Rectangle
+	drawGL    chan func()
 
 	newSize chan image.Rectangle
 	finish  chan struct{}
@@ -184,6 +191,9 @@ func (w *Win) Events() <-chan gui.Event { return w.eventsOut }
 
 // Draw returns the draw channel of the window.
 func (w *Win) Draw() chan<- func(draw.Image) image.Rectangle { return w.draw }
+
+// GL returns the Open GL draw channel of the window.
+func (w *Win) GL() chan<- func() { return w.drawGL }
 
 var buttons = map[glfw.MouseButton]Button{
 	glfw.MouseButtonLeft:   ButtonLeft,
@@ -289,6 +299,7 @@ func (w *Win) openGLThread() {
 	w.openGLSetup()
 
 	w.openGLFlush(w.img.Bounds())
+	w.w.SwapBuffers()
 
 loop:
 	for {
@@ -300,7 +311,6 @@ loop:
 			draw.Draw(img, w.img.Bounds(), w.img, w.img.Bounds().Min, draw.Src)
 			w.img = img
 			totalR = totalR.Union(r)
-
 		case d, ok := <-w.draw:
 			if !ok {
 				close(w.finish)
@@ -308,21 +318,29 @@ loop:
 			}
 			r := d(w.img)
 			totalR = totalR.Union(r)
+		// just immediately run GL rendering
+		// we know all internal gl stuff is initialized
+		// TODO: ceck what we need to reset in internal flush to be able to render correctly
+		case glFunc, ok := <-w.drawGL:
+			if !ok {
+				close(w.finish)
+				return
+			}
+			w.openGLFlush(totalR)
+			glFunc()
+			w.w.SwapBuffers()
 		}
-
 		for {
 			select {
 			case <-time.After(time.Second / 960):
 				w.openGLFlush(totalR)
 				totalR = image.ZR
 				continue loop
-
 			case r := <-w.newSize:
 				img := image.NewRGBA(r)
 				draw.Draw(img, w.img.Bounds(), w.img, w.img.Bounds().Min, draw.Src)
 				w.img = img
 				totalR = totalR.Union(r)
-
 			case d, ok := <-w.draw:
 				if !ok {
 					close(w.finish)
@@ -330,12 +348,26 @@ loop:
 				}
 				r := d(w.img)
 				totalR = totalR.Union(r)
+			// just immediately run GL rendering
+			// we know all internal gl stuff is initialized
+			// TODO: ceck what we need to reset in internal flush to be able to render correctly
+			case glFunc, ok := <-w.drawGL:
+				if !ok {
+					close(w.finish)
+					return
+				}
+				w.openGLFlush(totalR)
+				glFunc()
+				w.w.SwapBuffers()
 			}
 		}
 	}
 }
 
 func (w *Win) openGLFlush(r image.Rectangle) {
+
+	gl.Clear(gl.DEPTH_BUFFER_BIT | gl.COLOR_BUFFER_BIT)
+
 	bounds := w.img.Bounds()
 	r = r.Intersect(bounds)
 	if r.Empty() {
@@ -356,12 +388,14 @@ func (w *Win) openGLFlush(r image.Rectangle) {
 		gl.UNSIGNED_BYTE,
 		gl.Ptr(tmp.Pix))
 
+	gl.Disable(gl.DEPTH_TEST)
+
 	gl.UseProgram(w.shaderProgram)
 	gl.BindVertexArray(w.quadVao)
 	gl.ActiveTexture(gl.TEXTURE0)
 	gl.BindTexture(gl.TEXTURE_2D, w.screenTexture)
 	gl.DrawArrays(gl.TRIANGLES, 0, 6*2*3)
-	gl.Flush()
+
 }
 
 func (w *Win) openGLSetup() {
@@ -405,8 +439,8 @@ func (w *Win) openGLSetup() {
 		1.0,  -1.0, 1.0,  1.0, 1.0,
 	}
 
-	w.shaderProgram, err = newProgram(screenVertShader, screenFragShader)
-	gl.UseProgram(w.shaderProgram)
+	w.shaderProgram, err = NewProgram(screenVertShader, screenFragShader)
+	//gl.UseProgram(w.shaderProgram)
 
 	wid, hei := w.w.GetFramebufferSize()
 	w.screenTexture = newScreenTexture(wid, hei)
@@ -434,7 +468,7 @@ func (w *Win) openGLSetup() {
 }
 
 
-func newProgram(vertexShaderSource, fragmentShaderSource string) (uint32, error) {
+func NewProgram(vertexShaderSource, fragmentShaderSource string) (uint32, error) {
 
 	vertexShader, err := compileShader(vertexShaderSource, gl.VERTEX_SHADER)
 	if err != nil {
