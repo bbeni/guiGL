@@ -27,15 +27,20 @@ import (
 	"github.com/go-gl/mathgl/mgl32"
 )
 
-var previousTime float64
-var angle		 float64
-var program 	 uint32
-var vao 		 uint32
-var texture      uint32
-var model        mgl32.Mat4
-var modelUniform int32
 
 var CubeClearColor = color.RGBA{255, 255, 0, 255}
+var CubeZoomLevel  = float32(1)
+
+
+var previousTime  float64
+var angle		  float64
+var program 	  uint32
+var vao 		  uint32
+var texture       uint32
+var model         mgl32.Mat4
+var modelUniform  int32
+var camera		  mgl32.Mat4
+var cameraUniform int32
 
 func CubeInit() {
 	var err error
@@ -46,12 +51,12 @@ func CubeInit() {
 
 	gl.UseProgram(program)
 
-	projection        := mgl32.Perspective(mgl32.DegToRad(45.0), float32(windowWidth)/windowHeight, 0.1, 10.0)
-	camera        	  := mgl32.LookAtV(mgl32.Vec3{3, 3, 3}, mgl32.Vec3{0, 0, 0}, mgl32.Vec3{0, 1, 0})
+	projection        := mgl32.Perspective(mgl32.DegToRad(45.0), float32(windowWidth)/windowHeight, 0.1, 1000.0)
+	camera        	   = mgl32.LookAtV(mgl32.Vec3{3, 3, 3*CubeZoomLevel}, mgl32.Vec3{0, 0, 0}, mgl32.Vec3{0, 1, 0})
 	model              = mgl32.Ident4()
 
 	projectionUniform := gl.GetUniformLocation(program, gl.Str("projection\x00"))
-	cameraUniform     := gl.GetUniformLocation(program, gl.Str("camera\x00"))
+	cameraUniform      = gl.GetUniformLocation(program, gl.Str("camera\x00"))
 	modelUniform       = gl.GetUniformLocation(program, gl.Str("model\x00"))
 	textureUniform    := gl.GetUniformLocation(program, gl.Str("tex\x00"))
 
@@ -96,26 +101,27 @@ func CubeInit() {
 //  i.e. use -> gl.Scissor, gl.Clear !!
 func CubeDraw() {
 
+	gl.UseProgram(program)
+
 	gl.Enable(gl.DEPTH_TEST)
 	gl.DepthFunc(gl.LESS)
 
 	cc := CubeClearColor
 	gl.ClearColor(float32(cc.R)/255, float32(cc.G)/255, float32(cc.B)/255, 1.0)
-	gl.Scissor(0, 0, windowWidth - 200, windowHeight)
-	gl.Enable(gl.SCISSOR_TEST)
 	gl.Clear(gl.DEPTH_BUFFER_BIT | gl.COLOR_BUFFER_BIT)
-	gl.Disable(gl.SCISSOR_TEST)
+
+	camera = mgl32.LookAtV(mgl32.Vec3{3, 3, 3}.Mul(CubeZoomLevel*CubeZoomLevel*CubeZoomLevel), mgl32.Vec3{0, 0, 0}, mgl32.Vec3{0, 1, 0})
+	gl.UniformMatrix4fv(cameraUniform, 1, false, &camera[0])
 
 	// Update
 	time := glfw.GetTime()
 	elapsed := time - previousTime
-	//fmt.Println("FPS:", 1.0/elapsed)
 	previousTime = time
 	angle += elapsed
 	model = mgl32.HomogRotate3D(float32(angle), mgl32.Vec3{0, 1, 0})
+	// fmt.Println("FPS:", 1.0/elapsed)
 
 	// Render
-	gl.UseProgram(program)
 	gl.UniformMatrix4fv(modelUniform, 1, false, &model[0])
 	gl.BindVertexArray(vao)
 	gl.ActiveTexture(gl.TEXTURE0)

@@ -6,6 +6,10 @@
 // Modifications:
 // Copyright 2024 Benjamin Froelich bbenif@gmail.com
 // MIT licence
+//
+//	- Click on colored buttons on the right to change cube background color
+//	- Scroll with mouse wheel to zoom the cube in and out
+//
 
 package main
 
@@ -27,13 +31,8 @@ const (
 	windowHeight = 721
 )
 
-func colors(index uint8) color.RGBA {
-	if 0 <= index && index < 5 { return color.RGBA{index*50, 255 - index*50, 30, 255} }
-	if index == 5 {	return color.RGBA{255, 255, 255, 255} }
-	return color.RGBA{0, 0, 0, 255}
-}
-
 func run() {
+
 	w, err := win.New(
 		win.Title("openGL/gui"),
 		win.Size(windowWidth, windowHeight))
@@ -42,7 +41,7 @@ func run() {
 		panic(err)
 	}
 
-	drawRect := func(index uint8) func(draw.Image) image.Rectangle {
+	drawButton := func(index uint8) func(draw.Image) image.Rectangle {
 		return func(drw draw.Image) image.Rectangle {
 			r := image.Rect(windowWidth-rectWidth, int(index)*rectHeight, windowWidth, int(index+1)*rectHeight)
 			draw.Draw(drw, r, image.NewUniform(colors(index)), image.ZP, draw.Src)
@@ -50,15 +49,14 @@ func run() {
 		}
 	}
 
-	w.Draw() <- drawRect(0)
-	w.Draw() <- drawRect(1)
-	w.Draw() <- drawRect(2)
-	w.Draw() <- drawRect(3)
-	w.Draw() <- drawRect(4)
-	w.Draw() <- drawRect(5)
+
+	// Draw gui elements in different colors
+	for i:= range uint8(7) {
+		w.Draw() <- drawButton(i)
+	}
 
 	w.GL() <- CubeInit // send it to GL chanel so we have gl context in later calls
-	w.GL() <- CubeDraw
+	w.GL() <- CubeDraw // GL calls in CubeDraw function
 
 	loop:
 	for {
@@ -72,6 +70,13 @@ func run() {
 					colorIndex := uint8(event.Point.Y/rectHeight)
 					CubeClearColor = colors(colorIndex)
 				}
+			case win.MoScroll:
+				CubeZoomLevel += float32(event.Point.Y)*0.05
+				if CubeZoomLevel > 3 {
+					CubeZoomLevel = 3
+				} else if CubeZoomLevel < 0.75 {
+					CubeZoomLevel = 0.75
+				}
 			}
 		default:
 			w.GL() <- CubeDraw
@@ -82,6 +87,12 @@ func run() {
 	var _ = fmt.Print
 
 	close(w.Draw())
+}
+
+func colors(index uint8) color.RGBA {
+	if 0 <= index && index < 5 { return color.RGBA{index*50, 255 - index*50, 30, 255} }
+	if index == 5 {	return color.RGBA{255, 255, 255, 255} }
+	return color.RGBA{0, 0, 0, 255}
 }
 
 func main() {
