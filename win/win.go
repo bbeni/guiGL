@@ -181,9 +181,9 @@ type Win struct {
 	ratio int
 
 	// open gl stuff
-	screenTexture uint32
-	shaderProgram uint32
-	quadVao       uint32
+	guiTexture uint32
+	guiShader  uint32
+	quadVao    uint32
 }
 
 // Events returns the events channel of the window.
@@ -298,7 +298,7 @@ func (w *Win) openGLThread() {
 
 	w.openGLSetup()
 
-	w.openGLFlush(w.img.Bounds())
+	w.openGLRenderGui(w.img.Bounds())
 	w.w.SwapBuffers()
 
 loop:
@@ -326,14 +326,15 @@ loop:
 				close(w.finish)
 				return
 			}
-			w.openGLFlush(totalR)
 			glFunc()
+			// for now rerender the gui each GL() call
+			w.openGLRenderGui(totalR)
 			w.w.SwapBuffers()
 		}
 		for {
 			select {
 			case <-time.After(time.Second / 960):
-				w.openGLFlush(totalR)
+				w.openGLRenderGui(totalR)
 				w.w.SwapBuffers()
 				totalR = image.ZR
 				continue loop
@@ -357,17 +358,31 @@ loop:
 					close(w.finish)
 					return
 				}
-				w.openGLFlush(totalR)
 				glFunc()
+				// for now rerender the gui each GL() call
+				w.openGLRenderGui(totalR)
 				w.w.SwapBuffers()
 			}
 		}
 	}
 }
 
-func (w *Win) openGLFlush(r image.Rectangle) {
 
-	gl.Clear(gl.DEPTH_BUFFER_BIT | gl.COLOR_BUFFER_BIT)
+// For now the we render using a transparent texture where the whole gui gets rendered and we scissor and
+// only clear the depth buffer to keep other stuff on both buffers.
+//
+// Further Idea:
+//   render everything Gui related closer to the camera, so we don't have to clear the buffer.
+//   when another call is made to update gui we still have to clear the depth buffer..
+// Other Idea:
+//   So we need to make sure that the gui screen texture is transparent and the shader respects alpha.
+//   Everytime we want to render a new rectangle (i.e. `env.Draw() <- ...` call), we just clear that
+//   with open gl scissor. We should save the area and when renderGui is executed we clear just the depth bit.
+//
+
+func (w *Win) openGLRenderGui(r image.Rectangle) {
+
+	//gl.Clear(gl.DEPTH_BUFFER_BIT | gl.COLOR_BUFFER_BIT)
 
 	bounds := w.img.Bounds()
 	r = r.Intersect(bounds)
@@ -379,7 +394,7 @@ func (w *Win) openGLFlush(r image.Rectangle) {
 	draw.Draw(tmp, r, w.img, r.Min, draw.Src)
 
 	gl.TextureSubImage2D(
-		w.screenTexture,
+		w.guiTexture,
 		0,
 		int32(r.Min.X),
 		int32(r.Min.Y),
@@ -389,14 +404,36 @@ func (w *Win) openGLFlush(r image.Rectangle) {
 		gl.UNSIGNED_BYTE,
 		gl.Ptr(tmp.Pix))
 
-	gl.Disable(gl.DEPTH_TEST)
+	// TODO: scissor array of rects?
+	gl.Enable(gl.DEPTH_TEST)
+	gl.DepthFunc(gl.LESS)
 
-	gl.UseProgram(w.shaderProgram)
-	gl.BindVertexArray(w.quadVao)
-	gl.ActiveTexture(gl.TEXTURE0)
-	gl.BindTexture(gl.TEXTURE_2D, w.screenTexture)
-	gl.DrawArrays(gl.TRIANGLES, 0, 6*2*3)
+	//TODO: this is a dirty trick to draw the gui on both buffers
+	//      double render and we are on the same buffer as before.
+	for range 2 {
+		_, hei := w.w.GetFramebufferSize()
+		// TODO: might be wrong, need to add ceil/floor to the values.
+		gl.Scissor(int32(r.Min.X), int32(hei) - int32(r.Max.Y), int32(r.Dx()), int32(r.Dy()))
+		gl.Enable(gl.SCISSOR_TEST)
+		gl.Clear(gl.DEPTH_BUFFER_BIT)
+		gl.Disable(gl.SCISSOR_TEST)
 
+		gl.UseProgram(w.guiShader)
+		gl.Enable(gl.BLEND)
+		gl.BlendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA)  		 // Assume premultiplied alpha
+		//gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA) // Non-premultipled version
+
+		gl.BindVertexArray(w.quadVao)
+		gl.ActiveTexture(gl.TEXTURE0)
+		gl.BindTexture(gl.TEXTURE_2D, w.guiTexture)
+		gl.DrawArrays(gl.TRIANGLES, 0, 6*2*3)
+
+		w.w.SwapBuffers()
+	}
+
+	gl.Disable(gl.BLEND)
+
+	//gl.Disable(gl.DEPTH_TEST)
 }
 
 func (w *Win) openGLSetup() {
@@ -415,7 +452,8 @@ func (w *Win) openGLSetup() {
 		void main() {
 			fragTexCoord = vertTexCoord;
 			gl_Position = vec4(vert.xy, 0.0, 1.0);
-	}` + "\x00"
+		}
+	` + "\x00"
 
 	var screenFragShader = `
 		#version 420
@@ -440,14 +478,14 @@ func (w *Win) openGLSetup() {
 		1.0,  -1.0, 1.0,  1.0, 1.0,
 	}
 
-	w.shaderProgram, err = NewProgram(screenVertShader, screenFragShader)
-	//gl.UseProgram(w.shaderProgram)
+	w.guiShader, err = NewGLProgram(screenVertShader, screenFragShader)
+	//gl.UseProgram(w.guiShader)
 
 	wid, hei := w.w.GetFramebufferSize()
-	w.screenTexture = newScreenTexture(wid, hei)
-	textureUniform := gl.GetUniformLocation(w.shaderProgram, gl.Str("tex\x00"))
+	w.guiTexture = newScreenTexture(wid, hei)
+	textureUniform := gl.GetUniformLocation(w.guiShader, gl.Str("tex\x00"))
 	gl.Uniform1i(textureUniform, 0)
-	gl.BindFragDataLocation(w.shaderProgram, 0, gl.Str("outputColor\x00"))
+	gl.BindFragDataLocation(w.guiShader, 0, gl.Str("outputColor\x00"))
 
 	gl.GenVertexArrays(1, &w.quadVao)
 	gl.BindVertexArray(w.quadVao)
@@ -457,11 +495,11 @@ func (w *Win) openGLSetup() {
 	gl.BindBuffer(gl.ARRAY_BUFFER, vbo)
 	gl.BufferData(gl.ARRAY_BUFFER, len(quadVertices)*4, gl.Ptr(quadVertices), gl.STATIC_DRAW)
 
-	vertAttrib := uint32(gl.GetAttribLocation(w.shaderProgram, gl.Str("vert\x00")))
+	vertAttrib := uint32(gl.GetAttribLocation(w.guiShader, gl.Str("vert\x00")))
 	gl.EnableVertexAttribArray(vertAttrib)
 	gl.VertexAttribPointerWithOffset(vertAttrib, 3, gl.FLOAT, false, 5*4, 0)
 
-	texCoordAttrib := uint32(gl.GetAttribLocation(w.shaderProgram, gl.Str("vertTexCoord\x00")))
+	texCoordAttrib := uint32(gl.GetAttribLocation(w.guiShader, gl.Str("vertTexCoord\x00")))
 	gl.EnableVertexAttribArray(texCoordAttrib)
 	gl.VertexAttribPointerWithOffset(texCoordAttrib, 2, gl.FLOAT, false, 5*4, 3*4)
 
@@ -469,7 +507,7 @@ func (w *Win) openGLSetup() {
 }
 
 
-func NewProgram(vertexShaderSource, fragmentShaderSource string) (uint32, error) {
+func NewGLProgram(vertexShaderSource, fragmentShaderSource string) (uint32, error) {
 
 	vertexShader, err := compileShader(vertexShaderSource, gl.VERTEX_SHADER)
 	if err != nil {
@@ -534,7 +572,7 @@ func newScreenTexture(width, height int) (uint32) {
 	if rgba.Stride != rgba.Rect.Size().X*4 {
 		panic("unsupported stride")
 	}
-	draw.Draw(rgba, rgba.Bounds(), image.NewUniform(color.RGBA{100,100,0,255}), image.Point{0, 0}, draw.Src)
+	draw.Draw(rgba, rgba.Bounds(), image.NewUniform(color.RGBA{0,0,0,0}), image.Point{0, 0}, draw.Src)
 
 	var texture uint32
 	gl.GenTextures(1, &texture)
