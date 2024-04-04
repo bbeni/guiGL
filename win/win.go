@@ -312,7 +312,9 @@ loop:
 			totalR = totalR.Union(r)
 			// update gui texture size
 			gl.DeleteTextures(1, &w.guiTexture)
-			w.guiTexture = newScreenTexture(img.Bounds().Dx(), img.Bounds().Dy())
+			width, height := img.Bounds().Dx(), img.Bounds().Dy()
+			w.guiTexture = newScreenTexture(width, height)
+			gl.Viewport(0, 0, int32(width), int32(height))
 		case d, ok := <-w.draw:
 			if !ok {
 				close(w.finish)
@@ -347,7 +349,9 @@ loop:
 				totalR = totalR.Union(r)
 				// update gui texture size
 				gl.DeleteTextures(1, &w.guiTexture)
-				w.guiTexture = newScreenTexture(img.Bounds().Dx(), img.Bounds().Dy())
+				width, height := img.Bounds().Dx(), img.Bounds().Dy()
+				w.guiTexture = newScreenTexture(width, height)
+			    gl.Viewport(0, 0, int32(width), int32(height))
 			case d, ok := <-w.draw:
 				if !ok {
 					close(w.finish)
