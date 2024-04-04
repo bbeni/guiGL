@@ -142,7 +142,6 @@ func makeGLFWWin(o *options) (*glfw.Window, error) {
 	glfw.WindowHint(glfw.OpenGLForwardCompatible, glfw.True)
 	if o.resizable {
 		glfw.WindowHint(glfw.Resizable, glfw.True)
-		panic("resize is not supported for now. see TODO below and remove this panic")
 	} else {
 		glfw.WindowHint(glfw.Resizable, glfw.False)
 	}
@@ -311,6 +310,9 @@ loop:
 			draw.Draw(img, w.img.Bounds(), w.img, w.img.Bounds().Min, draw.Src)
 			w.img = img
 			totalR = totalR.Union(r)
+			// update gui texture size
+			gl.DeleteTextures(1, &w.guiTexture)
+			w.guiTexture = newScreenTexture(img.Bounds().Dx(), img.Bounds().Dy())
 		case d, ok := <-w.draw:
 			if !ok {
 				close(w.finish)
@@ -343,6 +345,9 @@ loop:
 				draw.Draw(img, w.img.Bounds(), w.img, w.img.Bounds().Min, draw.Src)
 				w.img = img
 				totalR = totalR.Union(r)
+				// update gui texture size
+				gl.DeleteTextures(1, &w.guiTexture)
+				w.guiTexture = newScreenTexture(img.Bounds().Dx(), img.Bounds().Dy())
 			case d, ok := <-w.draw:
 				if !ok {
 					close(w.finish)
