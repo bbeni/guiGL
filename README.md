@@ -1,3 +1,33 @@
+# Additions/Changes in this fork
+
+Added a GL() channel to the inteface that takes funtions to run on the main channel. The calls are always backed up with the gui on top of them. I.e. the render from the calls to the Draw() channel is overlayed. The GL() channel should be used to execute any [gl](https://github.com/go-gl/) related calls.
+
+```go
+type Env interface {
+	Events() <-chan Event
+	Draw() chan<- func(draw.Image) image.Rectangle
+	GL() chan<- func()
+}
+```
+
+In addition the code has been ported from open-gl version 2.1 to 4.2 and uses shaders now. The performance is still a bit worse, probably because we have to send every Draw() call image to the GPU and we use double buffering now, so the gui is rendered twice - on each buffer.
+
+## Installation
+
+```
+go get -u github.com/bbeni/guiGL
+```
+
+## Cube Example
+
+In addition to the 3 examples provided by the author [faiface](https://github.com/faiface) of the original library, a rotating opengl-cube mixed with gui elements on the side, is included. The buttons on the side change the background color. Mouse-wheel zooms the camera in and out.
+
+```
+go run ./examples/openGLcube
+```
+
+# Original Readme found here:
+
 # faiface/gui [![GoDoc](https://godoc.org/github.com/faiface/gui?status.svg)](https://godoc.org/github.com/faiface/gui) [![Discord](https://img.shields.io/badge/chat-on%20discord-9cf.svg)](https://discord.gg/T5YAAT2)
 
 Super minimal, rock-solid foundation for concurrent GUI in Go.
