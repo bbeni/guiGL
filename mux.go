@@ -14,6 +14,7 @@ type Mux struct {
 	lastResize Event
 	eventsIns  []chan<- Event
 	draw       chan<- func(draw.Image) image.Rectangle
+	drawGL     chan<- func()
 }
 
 // NewMux creates a new Mux that multiplexes the given Env. It returns the Mux along with
@@ -21,8 +22,10 @@ type Mux struct {
 // closing the Draw() channel on the master Env closes the whole Mux and all other Envs
 // created by the Mux.
 func NewMux(env Env) (mux *Mux, master Env) {
-	drawChan := make(chan func(draw.Image) image.Rectangle)
-	mux = &Mux{draw: drawChan}
+	drawChan   := make(chan func(draw.Image) image.Rectangle)
+	drawGLChan := make(chan func())
+
+	mux = &Mux{draw: drawChan, drawGL: drawGLChan}
 	master = mux.makeEnv(true)
 
 	go func() {
@@ -31,6 +34,14 @@ func NewMux(env Env) (mux *Mux, master Env) {
 		}
 		close(env.Draw())
 	}()
+
+	go func() {
+		for gld := range drawGLChan {
+			env.GL() <- gld
+		}
+		close(env.GL())
+	}()
+
 
 	go func() {
 		for e := range env.Events() {
@@ -63,15 +74,19 @@ func (mux *Mux) MakeEnv() Env {
 type muxEnv struct {
 	events <-chan Event
 	draw   chan<- func(draw.Image) image.Rectangle
+	drawGL chan<- func()
 }
 
 func (m *muxEnv) Events() <-chan Event                          { return m.events }
 func (m *muxEnv) Draw() chan<- func(draw.Image) image.Rectangle { return m.draw }
+func (m *muxEnv) GL()   chan<- func()                           { return m.drawGL }
 
 func (mux *Mux) makeEnv(master bool) Env {
 	eventsOut, eventsIn := MakeEventsChan()
-	drawChan := make(chan func(draw.Image) image.Rectangle)
-	env := &muxEnv{eventsOut, drawChan}
+	drawChan   := make(chan func(draw.Image) image.Rectangle)
+	drawGLChan := make(chan func())
+
+	env := &muxEnv{eventsOut, drawChan, drawGLChan}
 
 	mux.mu.Lock()
 	mux.eventsIns = append(mux.eventsIns, eventsIn)
@@ -82,6 +97,8 @@ func (mux *Mux) makeEnv(master bool) Env {
 	}
 	mux.mu.Unlock()
 
+	// TODO: Why is it this complicated for what it does?
+	//       Add the gl draw channel?
 	go func() {
 		func() {
 			// When the master Env gets its Draw() channel closed, it closes all the Events()

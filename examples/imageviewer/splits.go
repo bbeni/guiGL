@@ -14,6 +14,7 @@ type envPair struct {
 
 func (ep *envPair) Events() <-chan gui.Event                      { return ep.events }
 func (ep *envPair) Draw() chan<- func(draw.Image) image.Rectangle { return ep.draw }
+func (ep *envPair) GL() chan<- func()                             { return nil } // Dummy channel to satisfy interface ...
 
 func FixedLeft(env gui.Env, maxX int) gui.Env {
 	out, in := gui.MakeEventsChan()

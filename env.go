@@ -30,4 +30,5 @@ import (
 type Env interface {
 	Events() <-chan Event
 	Draw() chan<- func(draw.Image) image.Rectangle
+	GL()   chan<- func()
 }

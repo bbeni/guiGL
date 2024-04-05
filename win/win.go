@@ -391,8 +391,6 @@ loop:
 
 func (w *Win) openGLRenderGui(r image.Rectangle) {
 
-	//gl.Clear(gl.DEPTH_BUFFER_BIT | gl.COLOR_BUFFER_BIT)
-
 	bounds := w.img.Bounds()
 	r = r.Intersect(bounds)
 	if r.Empty() {
@@ -401,6 +399,12 @@ func (w *Win) openGLRenderGui(r image.Rectangle) {
 
 	tmp := image.NewRGBA(r)
 	draw.Draw(tmp, r, w.img, r.Min, draw.Src)
+
+	gl.UseProgram(w.guiShader)
+	gl.Enable(gl.BLEND)
+	gl.BlendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA)  		 // Assume premultiplied alpha
+	//gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA) // Non-premultipled version
+	//gl.Clear(gl.DEPTH_BUFFER_BIT | gl.COLOR_BUFFER_BIT)
 
 	gl.TextureSubImage2D(
 		w.guiTexture,
@@ -413,36 +417,31 @@ func (w *Win) openGLRenderGui(r image.Rectangle) {
 		gl.UNSIGNED_BYTE,
 		gl.Ptr(tmp.Pix))
 
-	// TODO: scissor array of rects?
 	gl.Enable(gl.DEPTH_TEST)
 	gl.DepthFunc(gl.LESS)
+
+	// TODO: might be wrong, need to add ceil/floor to the values.
+	// TODO: scissor array of rects?
+	_, hei := w.w.GetFramebufferSize()
+	gl.Enable(gl.SCISSOR_TEST)
+	gl.Scissor(int32(r.Min.X), int32(hei) - int32(r.Max.Y), int32(r.Dx()), int32(r.Dy()))
+
+	gl.ActiveTexture(gl.TEXTURE0)
+	gl.BindTexture(gl.TEXTURE_2D, w.guiTexture)
 
 	//TODO: this is a dirty trick to draw the gui on both buffers
 	//      double render and we are on the same buffer as before.
 	for range 2 {
-		_, hei := w.w.GetFramebufferSize()
-		// TODO: might be wrong, need to add ceil/floor to the values.
-		gl.Scissor(int32(r.Min.X), int32(hei) - int32(r.Max.Y), int32(r.Dx()), int32(r.Dy()))
-		gl.Enable(gl.SCISSOR_TEST)
 		gl.Clear(gl.DEPTH_BUFFER_BIT)
-		gl.Disable(gl.SCISSOR_TEST)
-
-		gl.UseProgram(w.guiShader)
-		gl.Enable(gl.BLEND)
-		gl.BlendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA)  		 // Assume premultiplied alpha
-		//gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA) // Non-premultipled version
-
 		gl.BindVertexArray(w.quadVao)
-		gl.ActiveTexture(gl.TEXTURE0)
-		gl.BindTexture(gl.TEXTURE_2D, w.guiTexture)
 		gl.DrawArrays(gl.TRIANGLES, 0, 6*2*3)
 
 		w.w.SwapBuffers()
 	}
 
 	gl.Disable(gl.BLEND)
-
-	//gl.Disable(gl.DEPTH_TEST)
+	gl.Disable(gl.SCISSOR_TEST)
+	gl.Disable(gl.DEPTH_TEST)
 }
 
 func (w *Win) openGLSetup() {
