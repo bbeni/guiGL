@@ -16,27 +16,27 @@ const (
 )
 
 // Key indicates a keyboard key in an event.
-type Key string
+type Key int
 
 // List of all keyboard keys.
 const (
-	KeyLeft      Key = "left"
-	KeyRight     Key = "right"
-	KeyUp        Key = "up"
-	KeyDown      Key = "down"
-	KeyEscape    Key = "escape"
-	KeySpace     Key = "space"
-	KeyBackspace Key = "backspace"
-	KeyDelete    Key = "delete"
-	KeyEnter     Key = "enter"
-	KeyTab       Key = "tab"
-	KeyHome      Key = "home"
-	KeyEnd       Key = "end"
-	KeyPageUp    Key = "pageup"
-	KeyPageDown  Key = "pagedown"
-	KeyShift     Key = "shift"
-	KeyCtrl      Key = "ctrl"
-	KeyAlt       Key = "alt"
+	KeyLeft Key = iota
+	KeyRight
+	KeyUp
+	KeyDown
+	KeyEscape
+	KeySpace
+	KeyBackspace
+	KeyDelete
+	KeyEnter
+	KeyTab
+	KeyHome
+	KeyEnd
+	KeyPageUp
+	KeyPageDown
+	KeyShift
+	KeyCtrl
+	KeyAlt
 )
 
 type (
